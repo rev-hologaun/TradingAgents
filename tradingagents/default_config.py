@@ -74,8 +74,8 @@ DEFAULT_CONFIG_LOCAL = {
     "quick_think_llm": "Qwen/Qwen3.6-35B-A3B",
     "data_vendors": {
         "core_stock_apis": "tradestation",
-        "technical_indicators": "yfinance",  # TS SIM lacks bars endpoint; yfinance provides OHLCV
-        "fundamental_data": "yfinance",
+        "technical_indicators": "tradestation",  # bars endpoint works: /marketdata/barcharts/{symbol}
+        "fundamental_data": "yfinance",  # TS lacks rich fundamentals
         "news_data": "rss",
     },
 }
