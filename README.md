@@ -220,6 +220,116 @@ print(decision)
 
 See `tradingagents/default_config.py` for all configuration options.
 
+## Local vLLM + TradeStation Setup
+
+TradingAgents supports running entirely on local infrastructure — a local vLLM endpoint for LLM inference and TradeStation data feeds for market data. This is ideal for offline research, privacy-sensitive environments, or reducing API costs.
+
+### Prerequisites
+
+- **vLLM endpoint**: Running on your local network (e.g. `http://192.168.50.144:8036/v1`)
+- **Model**: `Qwen/Qwen3.6-35B-A3B` (262K context, 32K max output)
+- **feedparser**: For RSS news fetching — `pip install feedparser`
+- **OpenClaw runtime**: Required for TradeStation MCP tools (or use yfinance fallback)
+
+### Quick Start
+
+**Option 1: Using the vLLM config file**
+
+```python
+from tradingagents.default_config_vllm import DEFAULT_CONFIG_VLLM as DEFAULT_CONFIG
+
+from tradingagents.graph.trading_graph import TradingAgentsGraph
+
+ta = TradingAgentsGraph(debug=True, config=DEFAULT_CONFIG_VLLM)
+_, decision = ta.propagate("AAPL", "2026-04-25")
+print(decision)
+```
+
+**Option 2: Using DEFAULT_CONFIG_LOCAL**
+
+```python
+from tradingagents.default_config import DEFAULT_CONFIG_LOCAL
+
+from tradingagents.graph.trading_graph import TradingAgentsGraph
+
+ta = TradingAgentsGraph(debug=True, config=DEFAULT_CONFIG_LOCAL)
+_, decision = ta.propagate("AAPL", "2026-04-25")
+print(decision)
+```
+
+**Option 3: Manual configuration**
+
+```python
+from tradingagents.default_config import DEFAULT_CONFIG
+
+config = DEFAULT_CONFIG.copy()
+config["llm_provider"] = "openai"
+config["backend_url"] = "http://192.168.50.144:8036/v1"
+config["deep_think_llm"] = "Qwen/Qwen3.6-35B-A3B"
+config["quick_think_llm"] = "Qwen/Qwen3.6-35B-A3B"
+config["data_vendors"] = {
+    "core_stock_apis": "tradestation",
+    "technical_indicators": "tradestation",
+    "fundamental_data": "yfinance",   # TradeStation has limited fundamentals
+    "news_data": "rss",
+}
+
+ta = TradingAgentsGraph(debug=True, config=config)
+_, decision = ta.propagate("AAPL", "2026-04-25")
+print(decision)
+```
+
+### Data Vendors
+
+| Category | TradeStation | yfinance | Alpha Vantage | RSS |
+|----------|-------------|----------|---------------|-----|
+| `core_stock_apis` | ✅ OHLCV bars + quotes | ✅ | ✅ | — |
+| `technical_indicators` | ✅ (via stockstats) | ✅ | ✅ | — |
+| `fundamental_data` | ⚠️ Limited (metadata only) | ✅ Full | ✅ Full | — |
+| `news_data` | — | ✅ | ✅ | ✅ RSS feeds |
+| `get_insider_transactions` | ⚠️ Not available | ✅ | ✅ | — |
+
+**Fundamentals note**: TradeStation's API provides symbol metadata (name, exchange, category) but does not include rich fundamental data (P/E ratios, market cap, balance sheets, etc.). The recommended configuration uses yfinance as a fallback for fundamental data queries.
+
+### RSS News Feeds
+
+The RSS news vendor fetches from these default feeds:
+
+- **Bloomberg Markets**: `feeds.bloomberg.com/markets/news.rss`
+- **Reuters**: `www.reutersagency.com/feed/`
+- **CNBC Markets**: `search.cnbc.com/rs/search/combinedcms/view.xml`
+- **MarketWatch**: `feeds.a.dj.com/rss/RSSMarketsMain.xml`
+- **WSJ Markets**: `feeds.a.dj.com/rss/RSSWorldNews.xml`
+- **Financial Times**: `www.ft.com/rss/home`
+
+Articles are filtered by ticker relevance (matching ticker symbol + known company name aliases) and date range. The global news endpoint returns broad market news without ticker filtering.
+
+### Environment Configuration
+
+Copy `.env.local` and update as needed:
+
+```bash
+cp .env.local .env.local.bak
+# Edit .env.local — set OPENAI_API_KEY=dummy (required by langchain-openai)
+# Set BACKEND_URL if different from default
+```
+
+### TradeStation MCP Tools
+
+When running inside OpenClaw, TradeStation data is fetched via MCP tools:
+
+| Function | MCP Tool | Description |
+|----------|----------|-------------|
+| `get_stock_data` | `tradestation__get_bars` + `tradestation__get_quote_snapshots` | OHLCV + current quotes |
+| `get_indicators` | `tradestation__get_bars` | Historical bars (indicators computed locally via stockstats) |
+| `get_fundamentals` | `tradestation__get_symbol_details` | Basic symbol metadata |
+
+For testing outside OpenClaw, vendor functions fall back to standalone mock data.
+
+### OpenAI Client Fix for vLLM
+
+The `OpenAIClient` now automatically detects non-OpenAI endpoints. When a custom `base_url` is provided that is NOT an official OpenAI domain, `use_responses_api` is set to `False` because vLLM and other OpenAI-compatible servers don't support the `/v1/responses` endpoint. This fix is applied transparently — no configuration change needed.
+
 ## Persistence and Recovery
 
 TradingAgents persists two kinds of state across runs.

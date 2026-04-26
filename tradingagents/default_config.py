@@ -48,3 +48,34 @@ DEFAULT_CONFIG = {
         # Example: "get_stock_data": "alpha_vantage",  # Override category default
     },
 }
+
+# Local/vLLM configuration variant.
+#
+# Use this when running TradingAgents against a local vLLM endpoint
+# (e.g. Qwen3.6-35B-A3B on gojira's RTX 6000) with TradeStation data
+# and RSS news feeds.
+#
+# Usage:
+#   from tradingagents.default_config import DEFAULT_CONFIG_LOCAL
+#   ta = TradingAgentsGraph(debug=True, config=DEFAULT_CONFIG_LOCAL)
+#
+# Note: This config requires:
+#   - OpenClaw runtime (for TradeStation MCP tools)
+#   - feedparser library (for RSS news): pip install feedparser
+#   - vLLM endpoint accessible at backend_url
+#
+# For fundamentals, yfinance is used as fallback since TradeStation
+# does not provide rich fundamental data.
+DEFAULT_CONFIG_LOCAL = {
+    **DEFAULT_CONFIG,
+    "llm_provider": "openai",
+    "backend_url": "http://192.168.50.144:8036/v1",
+    "deep_think_llm": "Qwen/Qwen3.6-35B-A3B",
+    "quick_think_llm": "Qwen/Qwen3.6-35B-A3B",
+    "data_vendors": {
+        "core_stock_apis": "tradestation",
+        "technical_indicators": "yfinance",  # TS SIM lacks bars endpoint; yfinance provides OHLCV
+        "fundamental_data": "yfinance",
+        "news_data": "rss",
+    },
+}

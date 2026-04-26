@@ -6,6 +6,19 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
+# =============================================================================
+# vLLM Local Configuration (uncomment to use local vLLM endpoint)
+# =============================================================================
+# To run against a local vLLM endpoint (e.g. Qwen3.6-35B-A3B on gojira):
+#
+#   1. Uncomment the import below
+#   2. Comment out the DEFAULT_CONFIG import above
+#   3. Ensure the vLLM endpoint is running and accessible
+#   4. Ensure feedparser is installed: pip install feedparser
+#
+# from tradingagents.default_config_vllm import DEFAULT_CONFIG_VLLM as DEFAULT_CONFIG
+# =============================================================================
+
 # Create a custom config
 config = DEFAULT_CONFIG.copy()
 config["deep_think_llm"] = "gpt-5.4-mini"  # Use a different model

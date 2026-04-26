@@ -50,6 +50,22 @@ _PROVIDER_CONFIG = {
     "ollama": ("http://localhost:11434/v1", None),
 }
 
+# Official OpenAI domains — only these should use the Responses API
+_OPENAI_DOMAINS = {
+    "api.openai.com",
+    "openai-api.example.com",  # internal proxy
+}
+
+
+def _is_official_openai(base_url: Optional[str]) -> bool:
+    """Check if base_url points to an official OpenAI domain."""
+    if not base_url:
+        return True  # no base_url → default is OpenAI
+    from urllib.parse import urlparse
+    parsed = urlparse(base_url)
+    host = parsed.hostname or ""
+    return host in _OPENAI_DOMAINS
+
 
 class OpenAIClient(BaseLLMClient):
     """Client for OpenAI, Ollama, OpenRouter, and xAI providers.
@@ -58,6 +74,10 @@ class OpenAIClient(BaseLLMClient):
     supports reasoning_effort with function tools across all model families
     (GPT-4.1, GPT-5). Third-party compatible providers (xAI, OpenRouter,
     Ollama) use standard Chat Completions.
+
+    When a custom base_url is provided that is NOT an official OpenAI domain,
+    use_responses_api is set to False because vLLM and other OpenAI-compatible
+    servers do not support the Responses API endpoint.
     """
 
     def __init__(
@@ -87,16 +107,25 @@ class OpenAIClient(BaseLLMClient):
                 llm_kwargs["api_key"] = "ollama"
         elif self.base_url:
             llm_kwargs["base_url"] = self.base_url
+            # Non-OpenAI endpoints (vLLM, Ollama, etc.) don't expect real API keys.
+            # Explicitly set a dummy key so ChatOpenAI doesn't fall back to
+            # OPENAI_API_KEY from the environment and send a real key that gets rejected.
+            llm_kwargs["api_key"] = "dummy"
 
         # Forward user-provided kwargs
         for key in _PASSTHROUGH_KWARGS:
             if key in self.kwargs:
                 llm_kwargs[key] = self.kwargs[key]
 
-        # Native OpenAI: use Responses API for consistent behavior across
-        # all model families. Third-party providers use Chat Completions.
-        if self.provider == "openai":
+        # Determine whether to use the Responses API:
+        # - Native OpenAI with default endpoint → Responses API
+        # - Custom base_url that is NOT official OpenAI → Chat Completions only
+        #   (vLLM, Ollama, etc. don't support /v1/responses)
+        # - Explicit provider overrides (xai, deepseek, etc.) → Chat Completions
+        if self.provider == "openai" and _is_official_openai(self.base_url):
             llm_kwargs["use_responses_api"] = True
+        else:
+            llm_kwargs["use_responses_api"] = False
 
         return NormalizedChatOpenAI(**llm_kwargs)
 
