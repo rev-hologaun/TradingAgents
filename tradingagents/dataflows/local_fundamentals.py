@@ -449,34 +449,50 @@ def _lookup_cik(ticker: str) -> Optional[str]:
 
 
 def _get_filings_urls(cik: str, filing_type: str = "10-K") -> List[Dict]:
-    """Get list of filing URLs for a given CIK and filing type."""
-    # SEC index API (preferred, returns JSON)
-    url = f"{SEC_EDGAR_FULL_URL}/{cik}/{filing_type}.idx"
+    """Get list of filing URLs for a given CIK and filing type.
+
+    Uses the modern SEC EDGAR JSON API (replaces deprecated .idx format).
+    SEC deprecated the .idx endpoint in 2023; the JSON API is the current
+    standard and returns structured filing metadata.
+    """
+    # Modern SEC EDGAR JSON API
+    url = f"https://data.sec.gov/submissions/CIK{cik.zfill(10)}.json"
 
     try:
         resp = requests.get(url, timeout=15, headers={
             "User-Agent": "TradingAgents/1.0 (local; no API key needed)"
         })
         if resp.status_code == 200:
+            data = resp.json()
+            filings_list = data.get("filings", {}).get("recent", {})
+            accessions = filings_list.get("accessionNumbers", [])
+            filing_forms = filings_list.get("form", [])
+            filing_dates = filings_list.get("filingDates", [])
+
             filings = []
-            for line in resp.text.strip().split("\n"):
-                parts = line.split()
-                if len(parts) >= 3:
-                    accession = parts[0]
-                    # Format: ACCESSIONNUMBER COMPANY_NAME FILING_DATE.FILING_TYPE
-                    filing_date_str = parts[1]
-                    try:
-                        filing_date = datetime.strptime(filing_date_str, "%Y-%m-%d")
-                    except ValueError:
-                        continue
-                    filings.append({
-                        "accession": accession,
-                        "date": filing_date,
-                        "company": parts[2].replace("_", " "),
-                    })
+            for i in range(len(accessions)):
+                form = filing_forms[i].upper().replace("-", "") if i < len(filing_forms) else ""
+                # Filter for 10-K and 10-Q only
+                if form not in ("10-K", "10-Q"):
+                    continue
+
+                accession = accessions[i].replace("-", "") if i < len(accessions) else ""
+                date_str = filing_dates[i] if i < len(filing_dates) else ""
+
+                try:
+                    filing_date = datetime.strptime(date_str.strip(), "%Y-%m-%d")
+                except (ValueError, AttributeError):
+                    continue
+
+                filings.append({
+                    "accession": accession,
+                    "date": filing_date,
+                    "form": form,
+                })
+
             return sorted(filings, key=lambda x: x["date"], reverse=True)
     except Exception as e:
-        logger.debug(f"Failed to fetch {filing_type} index for CIK {cik}: {e}")
+        logger.debug(f"Failed to fetch filings for CIK {cik}: {e}")
 
     return []
 

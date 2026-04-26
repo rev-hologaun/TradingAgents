@@ -25,7 +25,7 @@ DEFAULT_RSS_FEEDS = [
     },
     {
         "name": "Reuters",
-        "url": "https://www.reuters.com/feed",
+        "url": "https://feeds.reuters.com/reuters/topNews",
     },
     {
         "name": "CNBC Markets",
