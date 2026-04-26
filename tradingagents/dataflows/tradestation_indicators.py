@@ -117,27 +117,37 @@ _INDICATOR_DESCRIPTIONS = {
 
 def get_indicators(
     symbol: str,
-    start_date: str,
-    end_date: str,
+    indicator: str,
+    curr_date: str,
+    look_back_days: int = 90,
 ) -> str:
-    """Calculate and return multiple technical indicators from TradeStation bar data.
+    """Calculate technical indicators from TradeStation bar data.
 
-    Computes RSI, MACD, Bollinger Bands, ATR, MFI, and moving averages from
-    OHLCV data using stockstats.
+    Matches the agent-facing signature: get_indicators(symbol, indicator, curr_date, look_back_days).
+    For a single indicator, returns that indicator's values. If indicator is a comma-separated
+    list of indicator names, returns all of them.
 
     Args:
-        symbol: Ticker symbol (e.g. "AAPL")
-        start_date: Start date in yyyy-mm-dd format
-        end_date: End date in yyyy-mm-dd format
+        symbol: Ticker symbol (e.g. "NVDA")
+        indicator: Indicator name (e.g. "rsi", "macd", or comma-separated list)
+        curr_date: Current date in YYYY-MM-DD format
+        look_back_days: Number of days to look back (default 90)
 
     Returns:
         Formatted string with indicator values and descriptions
     """
+    from dateutil.relativedelta import relativedelta
+
     try:
         client = get_client()
 
-        # Fetch bars from TradeStation
-        bars_result = client.get_bars(symbol=symbol.upper(), interval=1, unit="day", bars_back=120)
+        # Fetch enough bars for the lookback period
+        bars_result = client.get_bars(
+            symbol=symbol.upper(),
+            interval=1,
+            unit="Daily",
+            bars_back=max(look_back_days + 30, 120),
+        )
         bars = bars_result.get("Bars", []) if isinstance(bars_result, dict) else []
 
         if not bars:
@@ -148,32 +158,47 @@ def get_indicators(
         if df.empty:
             return f"No valid OHLCV data for {symbol.upper()} to calculate indicators."
 
+        # Filter to date range
+        curr_dt = datetime.strptime(curr_date, "%Y-%m-%d")
+        before_dt = curr_dt - relativedelta(days=look_back_days)
+        df = df[(df["Date"] >= before_dt) & (df["Date"] <= curr_dt)]
+
+        if df.empty:
+            return f"No data in the date range {before_dt.strftime('%Y-%m-%d')} to {curr_date}."
+
         # Wrap with stockstats
         df_wrapped = wrap(df.copy())
 
-        # Calculate all indicators at once
-        indicators = [
-            "close_50_sma", "close_200_sma", "close_10_ema",
-            "macd", "macds", "macdh",
-            "rsi", "boll", "boll_ub", "boll_lb",
-            "atr", "mfi",
-        ]
+        # Parse indicator list (single or comma-separated)
+        indicator_names = [i.strip() for i in indicator.split(",")]
 
-        # Trigger stockstats calculations
-        for ind in indicators:
-            _ = df_wrapped[ind]
+        # Compute all requested indicators
+        for ind in indicator_names:
+            if ind in _INDICATOR_DESCRIPTIONS:
+                _ = df_wrapped[ind]
 
         # Format output
         header = (
             f"# Technical Indicators for {symbol.upper()}\n"
-            f"Period: {start_date} to {end_date}\n"
+            f"Period: {before_dt.strftime('%Y-%m-%d')} to {curr_date}\n"
             f"Data points: {len(df)}\n"
             f"Calculated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
         )
 
         lines = []
-        for ind in indicators:
-            latest = df_wrapped[ind].iloc[-1] if len(df_wrapped) > 0 else None
+        for ind in indicator_names:
+            if ind not in _INDICATOR_DESCRIPTIONS:
+                lines.append(f"## {ind.upper()}: NOT SUPPORTED")
+                lines.append(f"Supported indicators: {list(_INDICATOR_DESCRIPTIONS.keys())}")
+                lines.append("")
+                continue
+
+            if ind not in df_wrapped.columns:
+                lines.append(f"## {ind.upper()}: N/A (not computed)")
+                lines.append("")
+                continue
+
+            latest = df_wrapped[ind].iloc[-1]
             if pd.isna(latest) or latest is None:
                 value_str = "N/A"
             else:
@@ -227,7 +252,7 @@ def get_indicator(
         bars_result = client.get_bars(
             symbol=symbol.upper(),
             interval=1,
-            unit="day",
+            unit="Daily",
             bars_back=max(look_back_days + 30, 120),
         )
         bars = bars_result.get("Bars", []) if isinstance(bars_result, dict) else []

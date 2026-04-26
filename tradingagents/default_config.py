@@ -70,8 +70,8 @@ DEFAULT_CONFIG_LOCAL = {
     **DEFAULT_CONFIG,
     "llm_provider": "openai",
     "backend_url": "http://192.168.50.144:8036/v1",
-    "deep_think_llm": "Qwen/Qwen3.6-35B-A3B",
-    "quick_think_llm": "Qwen/Qwen3.6-35B-A3B",
+    "deep_think_llm": "Qwen/Qwen3.6-35B-A3B-FP8",
+    "quick_think_llm": "Qwen/Qwen3.6-35B-A3B-FP8",
     "data_vendors": {
         "core_stock_apis": "tradestation",
         "technical_indicators": "tradestation",  # bars endpoint works: /marketdata/barcharts/{symbol}
