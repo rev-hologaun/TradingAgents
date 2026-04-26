@@ -51,7 +51,7 @@ class TradeStationClient:
         self.client_id: str = ""
         self.client_secret: str = ""
         self.redirect_uri: str = ""
-        self.api_base_url: str = "https://sim-api.tradestation.com/v3"
+        self.api_base_url: str = "https://sim-api.tradestation.com"
         self.environment: str = "SIM"
         self.auth_base: str = "https://signin.tradestation.com/v3"
         self.token_url: str = "https://signin.tradestation.com/oauth/token"
@@ -268,29 +268,35 @@ class TradeStationClient:
     def get_quotes(self, symbols: List[str]) -> Optional[Dict]:
         """Get current quotes for one or more symbols.
 
+        Endpoint: GET /v3/marketdata/quotes/{symbols}
+        Symbols are passed as a path segment, comma-separated.
+        Query params are NOT supported for quotes.
+
         Args:
             symbols: List of ticker symbols (e.g. ["AAPL", "MSFT"])
 
         Returns:
-            Dict with quote data, or None on failure
+            Dict with Quotes array, or None on failure
         """
-        return self.get("/quotes", params={"symbols": ",".join(symbols)})
+        return self.get(f"/marketdata/quotes/{','.join(symbols)}")
 
     def get_bars(
         self,
         symbol: str,
         interval: int = 1,
-        unit: str = "day",
+        unit: str = "Daily",
         start_date: str = None,
         end_date: str = None,
         bars_back: int = None,
     ) -> Optional[Dict]:
         """Get historical OHLCV bars.
 
+        Endpoint: GET /v3/marketdata/barcharts/{symbol}
+
         Args:
             symbol: Ticker symbol
             interval: Bar interval (1-1440 for minutes, 1 for day/week/month)
-            unit: Time unit — minute, day, week, month
+            unit: Time unit — Minute, Daily, Weekly, Monthly (default: Daily)
             start_date: Start date (ISO format, e.g. "2024-01-01")
             end_date: End date (ISO format)
             bars_back: Number of bars to fetch (mutually exclusive with dates)
@@ -298,7 +304,7 @@ class TradeStationClient:
         Returns:
             Dict with Bars array, or None on failure
         """
-        params = {"symbol": symbol, "interval": str(interval), "unit": unit}
+        params = {"interval": str(interval), "unit": unit}
         if start_date:
             params["startDate"] = start_date
         if end_date:
@@ -306,21 +312,28 @@ class TradeStationClient:
         if bars_back:
             params["barsBack"] = str(bars_back)
 
-        return self.get("/bars", params=params)
+        return self.get(f"/marketdata/barcharts/{symbol}", params=params)
 
     def get_symbol_details(self, symbols: List[str]) -> Optional[Dict]:
         """Get symbol metadata.
+
+        Endpoint: GET /v3/marketdata/symbols/{symbol}
+        Symbols are passed as a path segment, comma-separated.
+        Query params are NOT supported.
 
         Args:
             symbols: List of ticker symbols
 
         Returns:
-            Dict with symbol details, or None on failure
+            Dict with Symbols array, or None on failure
         """
-        return self.get("/symbols", params={"symbols": ",".join(symbols)})
+        return self.get(f"/marketdata/symbols/{','.join(symbols)}")
 
     def get_market_depth(self, symbol: str, levels: int = 20) -> Optional[Dict]:
         """Get market depth (order book) for a symbol.
+
+        NOTE: This endpoint is NOT available in the SIM environment (404).
+        Available in LIVE only.
 
         Args:
             symbol: Ticker symbol
@@ -329,7 +342,7 @@ class TradeStationClient:
         Returns:
             Dict with bid/ask depth data, or None on failure
         """
-        return self.get("/marketdepth", params={"symbol": symbol, "levels": str(levels)})
+        return self.get(f"/marketdata/stream/marketdepth/aggregates/{symbol}", params={"maxlevels": str(levels)})
 
     def get_options_chain(
         self,
@@ -340,6 +353,9 @@ class TradeStationClient:
     ) -> Optional[Dict]:
         """Get option chain for a symbol.
 
+        NOTE: Options endpoints are NOT available in the SIM environment (404).
+        Available in LIVE only.
+
         Args:
             symbol: Underlying ticker symbol
             expiration: Expiration date (YYYY-MM-DD). None = next expiration
@@ -349,16 +365,16 @@ class TradeStationClient:
         Returns:
             Dict with option chain data, or None on failure
         """
-        params = {"symbol": symbol, "strike_proximity": str(strike_proximity)}
+        params = {"strikeProximity": str(strike_proximity), "optionType": option_type}
         if expiration:
             params["expiration"] = expiration
-        if option_type:
-            params["optionType"] = option_type
-
-        return self.get("/options", params=params)
+        return self.get(f"/marketdata/options/chains/{symbol}", params=params)
 
     def get_option_expirations(self, symbol: str) -> Optional[Dict]:
         """Get available option expiration dates for a symbol.
+
+        NOTE: Options endpoints are NOT available in the SIM environment (404).
+        Available in LIVE only.
 
         Args:
             symbol: Underlying ticker symbol
@@ -366,10 +382,13 @@ class TradeStationClient:
         Returns:
             Dict with expiration dates, or None on failure
         """
-        return self.get("/options/expirations", params={"symbol": symbol})
+        return self.get(f"/marketdata/options/expirations/{symbol}")
 
     def get_option_strikes(self, symbol: str, expiration: str = None) -> Optional[Dict]:
         """Get available option strike prices for a symbol.
+
+        NOTE: Options endpoints are NOT available in the SIM environment (404).
+        Available in LIVE only.
 
         Args:
             symbol: Underlying ticker symbol
@@ -378,79 +397,92 @@ class TradeStationClient:
         Returns:
             Dict with strike prices, or None on failure
         """
-        params = {"symbol": symbol}
+        params = {"spreadType": "Single", "strikeInterval": "1"}
         if expiration:
             params["expiration"] = expiration
-        return self.get("/options/strikes", params=params)
+        return self.get(f"/marketdata/options/strikes/{symbol}", params=params)
 
     # ------------------------------------------------------------------
     # Account Endpoints
     # ------------------------------------------------------------------
 
-    def get_positions(self, account_id: str = None) -> Optional[Dict]:
+    def get_positions(self, account_id: str = None, symbol_filter: str = None) -> Optional[Dict]:
         """Get current positions.
 
+        Endpoint: GET /v3/brokerage/accounts/{account_id}/positions
+        Account ID is REQUIRED (path segment, not query param).
+        Use comma-separated IDs for multiple accounts: "ACC1,ACC2"
+
         Args:
-            account_id: Account ID. None = all accounts.
+            account_id: Account ID (required). Comma-separated for multiple.
+            symbol_filter: Optional symbol filter (e.g. "MSFT *" for options)
 
         Returns:
-            Dict with positions data, or None on failure
+            Dict with Positions array, or None on failure
         """
+        if not account_id:
+            print("[TradeStation] Account ID is required for positions")
+            return None
         params = {}
-        if account_id:
-            params["accountId"] = account_id
-        return self.get("/accounts/positions", params=params)
+        if symbol_filter:
+            params["symbol"] = symbol_filter
+        return self.get(f"/brokerage/accounts/{account_id}/positions", params=params)
 
     def get_orders(
         self,
         account_id: str = None,
         status: str = None,
-        start_date: str = None,
-        end_date: str = None,
     ) -> Optional[Dict]:
         """Get orders.
 
+        Endpoint: GET /v3/brokerage/accounts/{account_id}/orders
+        Account ID is REQUIRED (path segment, not query param).
+
+        NOTE: Date filters (start_date, end_date) are NOT supported via query params.
+        Use get_historical_orders() for historical order data.
+
         Args:
-            account_id: Account ID
+            account_id: Account ID (required). Comma-separated for multiple.
             status: Order status filter (open, filled, cancelled, etc.)
-            start_date: Start date filter
-            end_date: End date filter
 
         Returns:
-            Dict with orders data, or None on failure
+            Dict with Orders array, or None on failure
         """
-        params = {}
-        if account_id:
-            params["accountId"] = account_id
+        if not account_id:
+            print("[TradeStation] Account ID is required for orders")
+            return None
+        params = {"pageSize": "600"}
         if status:
             params["status"] = status
-        if start_date:
-            params["startDate"] = start_date
-        if end_date:
-            params["endDate"] = end_date
-        return self.get("/orders", params=params)
+        return self.get(f"/brokerage/accounts/{account_id}/orders", params=params)
 
     def get_account_balances(self, account_id: str = None) -> Optional[Dict]:
         """Get account balances.
 
+        Endpoint: GET /v3/brokerage/accounts/{account_id}/balances
+        Account ID is REQUIRED (path segment, not query param).
+        Use comma-separated IDs for multiple accounts.
+
         Args:
-            account_id: Account ID. None = all accounts.
+            account_id: Account ID (required). Comma-separated for multiple.
 
         Returns:
-            Dict with balance data, or None on failure
+            Dict with Balances array, or None on failure
         """
-        params = {}
-        if account_id:
-            params["accountId"] = account_id
-        return self.get("/accounts/balances", params=params)
+        if not account_id:
+            print("[TradeStation] Account ID is required for balances")
+            return None
+        return self.get(f"/brokerage/accounts/{account_id}/balances")
 
     def get_account_list(self) -> Optional[Dict]:
         """Get list of accounts.
 
+        Endpoint: GET /v3/brokerage/accounts
+
         Returns:
-            Dict with account list, or None on failure
+            Dict with Accounts array, or None on failure
         """
-        return self.get("/accounts")
+        return self.get("/brokerage/accounts")
 
     # ------------------------------------------------------------------
     # Trading Endpoints
@@ -468,6 +500,10 @@ class TradeStationClient:
         duration: str = "day",
     ) -> Optional[Dict]:
         """Place a new order.
+
+        Endpoint: POST /brokerage/orderexecution/accounts/{account_id}/orders
+        NOTE: Order execution is NOT available in the SIM environment (404).
+        Available in LIVE only.
 
         Args:
             account_id: Account ID
@@ -494,10 +530,17 @@ class TradeStationClient:
         if stop_price is not None:
             order["stopPrice"] = str(stop_price)
 
-        return self.post(f"/accounts/{account_id}/orders", json_data=order)
+        return self.post(
+            f"/brokerage/orderexecution/accounts/{account_id}/orders",
+            json_data=order,
+        )
 
     def cancel_order(self, order_id: str) -> Optional[Dict]:
         """Cancel an open order.
+
+        Endpoint: POST /brokerage/orderexecution/orders/{order_id}/cancel
+        NOTE: Order execution is NOT available in the SIM environment (404).
+        Available in LIVE only.
 
         Args:
             order_id: Order ID to cancel
@@ -505,7 +548,7 @@ class TradeStationClient:
         Returns:
             Dict with cancellation result, or None on failure
         """
-        return self.post(f"/orders/{order_id}/cancel")
+        return self.post(f"/brokerage/orderexecution/orders/{order_id}/cancel")
 
     # ------------------------------------------------------------------
     # Utility
