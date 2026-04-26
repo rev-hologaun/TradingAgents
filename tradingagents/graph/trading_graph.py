@@ -197,7 +197,7 @@ class TradingAgentsGraph:
 
         Uses TradeStation API for historical bar data.
         """
-        from .dataflows.tradestation_client import get_client
+        from ..dataflows.tradestation_client import get_client
 
         try:
             # We need enough bars to cover the holding period.
