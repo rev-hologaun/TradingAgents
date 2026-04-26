@@ -5,7 +5,7 @@ and date range. Uses the `feedparser` library for RSS parsing.
 
 Default feeds:
 - Bloomberg Markets: https://feeds.bloomberg.com/markets/news.rss
-- Reuters: https://www.reutersagency.com/feed/
+- Reuters: https://www.reuters.com/feed
 - CNBC Markets: https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114
 - MarketWatch: https://feeds.a.dj.com/rss/RSSMarketsMain.xml
 
@@ -25,7 +25,7 @@ DEFAULT_RSS_FEEDS = [
     },
     {
         "name": "Reuters",
-        "url": "https://www.reutersagency.com/feed/",
+        "url": "https://www.reuters.com/feed",
     },
     {
         "name": "CNBC Markets",

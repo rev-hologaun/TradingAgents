@@ -450,8 +450,6 @@ def _lookup_cik(ticker: str) -> Optional[str]:
 
 def _get_filings_urls(cik: str, filing_type: str = "10-K") -> List[Dict]:
     """Get list of filing URLs for a given CIK and filing type."""
-    # SEC EDGAR full-text search
-    url = f"https://efts.sec.gov/LATEST/search-index?q={ticker}"
     # SEC index API (preferred, returns JSON)
     url = f"{SEC_EDGAR_FULL_URL}/{cik}/{filing_type}.idx"
 
