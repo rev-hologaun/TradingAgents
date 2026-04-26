@@ -2,7 +2,7 @@
 
 Uses TradeStation REST API for basic symbol metadata. TradeStation does NOT
 provide rich fundamental data (balance sheets, income statements, cash flow),
-so these return informative notes and suggest yfinance as fallback.
+so these return informative notes and suggest Alpha Vantage as fallback.
 
 Uses the standalone TradeStationClient from tradestation_client module.
 """
@@ -47,7 +47,7 @@ def get_fundamentals(ticker: str) -> str:
             f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
             f"# NOTE: TradeStation provides limited fundamental data.\n"
             f"# For detailed fundamentals (P/E, market cap, sector, etc.),\n"
-            f"# use yfinance or Alpha Vantage.\n\n"
+            f"# use Alpha Vantage.\n\n"
         )
 
         lines = [
@@ -61,9 +61,9 @@ def get_fundamentals(ticker: str) -> str:
             "# - No sector/industry classification beyond basic category",
             "# - No financial statement data (income, balance sheet, cash flow)",
             "",
-            "# Recommended fallback: Use yfinance for rich fundamental data.",
-            "# In default_config.py, set 'fundamental_data': 'yfinance' to use",
-            "# yfinance as the default for fundamental data queries.",
+            "# Recommended fallback: Use Alpha Vantage for rich fundamental data.",
+            "# In default_config.py, set 'fundamental_data': 'alpha_vantage' to use",
+            "# Alpha Vantage as the default for fundamental data queries.",
         ]
 
         return header + "\n".join(lines)
@@ -82,16 +82,16 @@ def get_balance_sheet(ticker: str, freq: str = "quarterly",
         curr_date: Current date — not used
 
     Returns:
-        Note about the limitation and suggestion to use yfinance
+        Note about the limitation and suggestion to use Alpha Vantage
     """
     return (
         f"# Balance Sheet for {ticker.upper()}\n"
         f"# Note: TradeStation API does not provide balance sheet data.\n"
-        f"# Consider using yfinance or Alpha Vantage for financial statements.\n\n"
+        f"# Consider using Alpha Vantage for financial statements.\n\n"
         f"Frequency: {freq}\n"
         f"Data available: No\n\n"
-        f"# To use yfinance for fundamentals, set in config:\n"
-        f'#   "fundamental_data": "yfinance"\n'
+        f"# To use Alpha Vantage for fundamentals, set in config:\n"
+        f'#   "fundamental_data": "alpha_vantage"\n'
     )
 
 
@@ -105,16 +105,16 @@ def get_cashflow(ticker: str, freq: str = "quarterly",
         curr_date: Current date — not used
 
     Returns:
-        Note about the limitation and suggestion to use yfinance
+        Note about the limitation and suggestion to use Alpha Vantage
     """
     return (
         f"# Cash Flow for {ticker.upper()}\n"
         f"# Note: TradeStation API does not provide cash flow data.\n"
-        f"# Consider using yfinance or Alpha Vantage for financial statements.\n\n"
+        f"# Consider using Alpha Vantage for financial statements.\n\n"
         f"Frequency: {freq}\n"
         f"Data available: No\n\n"
-        f"# To use yfinance for fundamentals, set in config:\n"
-        f'#   "fundamental_data": "yfinance"\n'
+        f"# To use Alpha Vantage for fundamentals, set in config:\n"
+        f'#   "fundamental_data": "alpha_vantage"\n'
     )
 
 
@@ -128,14 +128,14 @@ def get_income_statement(ticker: str, freq: str = "quarterly",
         curr_date: Current date — not used
 
     Returns:
-        Note about the limitation and suggestion to use yfinance
+        Note about the limitation and suggestion to use Alpha Vantage
     """
     return (
         f"# Income Statement for {ticker.upper()}\n"
         f"# Note: TradeStation API does not provide income statement data.\n"
-        f"# Consider using yfinance or Alpha Vantage for financial statements.\n\n"
+        f"# Consider using Alpha Vantage for financial statements.\n\n"
         f"Frequency: {freq}\n"
         f"Data available: No\n\n"
-        f"# To use yfinance for fundamentals, set in config:\n"
-        f'#   "fundamental_data": "yfinance"\n'
+        f"# To use Alpha Vantage for fundamentals, set in config:\n"
+        f'#   "fundamental_data": "alpha_vantage"\n'
     )

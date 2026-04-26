@@ -50,7 +50,7 @@ def _bars_to_dataframe(bars: list[dict]) -> pd.DataFrame:
     return df
 
 
-# Indicator descriptions matching yfinance/alpha_vantage conventions
+# Indicator descriptions matching standard conventions
 _INDICATOR_DESCRIPTIONS = {
     "close_50_sma": (
         "50 SMA: A medium-term trend indicator. "

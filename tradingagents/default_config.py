@@ -38,10 +38,10 @@ DEFAULT_CONFIG = {
     # Data vendor configuration
     # Category-level configuration (default for all tools in category)
     "data_vendors": {
-        "core_stock_apis": "yfinance",       # Options: alpha_vantage, yfinance
-        "technical_indicators": "yfinance",  # Options: alpha_vantage, yfinance
-        "fundamental_data": "yfinance",      # Options: alpha_vantage, yfinance
-        "news_data": "yfinance",             # Options: alpha_vantage, yfinance
+        "core_stock_apis": "tradestation",    # Options: tradestation, alpha_vantage
+        "technical_indicators": "tradestation",  # Options: tradestation, alpha_vantage
+        "fundamental_data": "local_fundamentals",  # Options: local_fundamentals, alpha_vantage, tradestation
+        "news_data": "rss",                  # Options: rss, alpha_vantage
     },
     # Tool-level configuration (takes precedence over category-level)
     "tool_vendors": {
@@ -64,8 +64,24 @@ DEFAULT_CONFIG = {
 #   - feedparser library (for RSS news): pip install feedparser
 #   - vLLM endpoint accessible at backend_url
 #
-# For fundamentals, yfinance is used as fallback since TradeStation
-# does not provide rich fundamental data.
+# Local/vLLM configuration variant.
+#
+# Use this when running TradingAgents against a local vLLM endpoint
+# (e.g. Qwen3.6-35B-A3B on gojira's RTX 6000) with TradeStation data
+# and RSS news feeds.
+#
+# Usage:
+#   from tradingagents.default_config import DEFAULT_CONFIG_LOCAL
+#   ta = TradingAgentsGraph(debug=True, config=DEFAULT_CONFIG_LOCAL)
+#
+# Note: This config requires:
+#   - OpenClaw runtime (for TradeStation MCP tools)
+#   - feedparser library (for RSS news): pip install feedparser
+#   - vLLM endpoint accessible at backend_url
+#   - SEC EDGAR access for fundamentals (free, no API key needed)
+#
+# All data sources are now self-contained: TradeStation (OHLCV/quotes),
+# local_fundamentals (SEC EDGAR), RSS (news). No external API keys required.
 DEFAULT_CONFIG_LOCAL = {
     **DEFAULT_CONFIG,
     "llm_provider": "openai",
@@ -74,8 +90,8 @@ DEFAULT_CONFIG_LOCAL = {
     "quick_think_llm": "Qwen/Qwen3.6-35B-A3B-FP8",
     "data_vendors": {
         "core_stock_apis": "tradestation",
-        "technical_indicators": "tradestation",  # bars endpoint works: /marketdata/barcharts/{symbol}
-        "fundamental_data": "yfinance",  # TS lacks rich fundamentals
+        "technical_indicators": "tradestation",
+        "fundamental_data": "local_fundamentals",  # SEC EDGAR scraper — no API key needed
         "news_data": "rss",
     },
 }

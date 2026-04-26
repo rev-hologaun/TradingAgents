@@ -45,7 +45,7 @@ def get_stock_data(
             bars_result = client.get_bars(
                 symbol=symbol.upper(),
                 interval=1,
-                unit="day",
+                unit="Daily",
                 bars_back=90,
             )
             bars = bars_result.get("Bars", []) if isinstance(bars_result, dict) else []

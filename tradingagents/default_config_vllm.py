@@ -22,7 +22,7 @@ DEFAULT_CONFIG_VLLM = {
     "data_vendors": {
         "core_stock_apis": "tradestation",
         "technical_indicators": "tradestation",
-        "fundamental_data": "yfinance",  # fallback for fundamentals
+        "fundamental_data": "local_fundamentals",  # SEC EDGAR scraper — no API key needed
         "news_data": "rss",
     },
     # No API keys needed for local vLLM, but set a dummy key to satisfy

@@ -7,7 +7,6 @@ import json
 from datetime import datetime, timedelta
 from typing import Dict, Any, Tuple, List, Optional
 
-import yfinance as yf
 
 logger = logging.getLogger(__name__)
 
@@ -195,26 +194,82 @@ class TradingAgentsGraph:
         Returns (raw_return, alpha_return, actual_holding_days) or
         (None, None, None) if price data is unavailable (too recent, delisted,
         or network error).
+
+        Uses TradeStation API for historical bar data.
         """
+        from .dataflows.tradestation_client import get_client
+
         try:
-            start = datetime.strptime(trade_date, "%Y-%m-%d")
-            end = start + timedelta(days=holding_days + 7)  # buffer for weekends/holidays
-            end_str = end.strftime("%Y-%m-%d")
+            # We need enough bars to cover the holding period.
+            # Fetch holding_days + buffer to account for weekends/holidays.
+            total_bars = holding_days + 10
 
-            stock = yf.Ticker(ticker).history(start=trade_date, end=end_str)
-            spy = yf.Ticker("SPY").history(start=trade_date, end=end_str)
+            client = get_client()
 
-            if len(stock) < 2 or len(spy) < 2:
+            # Fetch ticker bars
+            bars_result = client.get_bars(
+                symbol=ticker.upper(),
+                interval=1,
+                unit="Daily",
+                bars_back=total_bars + 30,  # extra buffer
+            )
+            bars = bars_result.get("Bars", []) if isinstance(bars_result, dict) else []
+
+            # Parse and filter bars to the date range
+            trade_dt = datetime.strptime(trade_date, "%Y-%m-%d")
+            end_dt = trade_dt + timedelta(days=holding_days)
+
+            ticker_closes = []
+            spy_closes = []
+
+            for bar in bars:
+                ts = bar.get("TimeStamp", "")
+                try:
+                    dt = datetime.fromisoformat(ts.replace("Z", "+00:00")).replace(tzinfo=None)
+                except (ValueError, AttributeError):
+                    continue
+
+                if dt < trade_dt or dt > end_dt:
+                    continue
+
+                close = bar.get("Close", 0)
+                if close and float(close) > 0:
+                    ticker_closes.append(float(close))
+
+            # Fetch SPY bars
+            spy_result = client.get_bars(
+                symbol="SPY",
+                interval=1,
+                unit="Daily",
+                bars_back=total_bars + 30,
+            )
+            spy_bars = spy_result.get("Bars", []) if isinstance(spy_result, dict) else []
+
+            for bar in spy_bars:
+                ts = bar.get("TimeStamp", "")
+                try:
+                    dt = datetime.fromisoformat(ts.replace("Z", "+00:00")).replace(tzinfo=None)
+                except (ValueError, AttributeError):
+                    continue
+
+                if dt < trade_dt or dt > end_dt:
+                    continue
+
+                close = bar.get("Close", 0)
+                if close and float(close) > 0:
+                    spy_closes.append(float(close))
+
+            if len(ticker_closes) < 2 or len(spy_closes) < 2:
                 return None, None, None
 
-            actual_days = min(holding_days, len(stock) - 1, len(spy) - 1)
+            actual_days = min(holding_days, len(ticker_closes) - 1, len(spy_closes) - 1)
             raw = float(
-                (stock["Close"].iloc[actual_days] - stock["Close"].iloc[0])
-                / stock["Close"].iloc[0]
+                (ticker_closes[actual_days] - ticker_closes[0])
+                / ticker_closes[0]
             )
             spy_ret = float(
-                (spy["Close"].iloc[actual_days] - spy["Close"].iloc[0])
-                / spy["Close"].iloc[0]
+                (spy_closes[actual_days] - spy_closes[0])
+                / spy_closes[0]
             )
             alpha = raw - spy_ret
             return raw, alpha, actual_days
