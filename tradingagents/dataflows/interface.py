@@ -1,19 +1,5 @@
 from typing import Annotated
 
-# Import from vendor-specific modules
-from .alpha_vantage import (
-    get_stock as get_alpha_vantage_stock,
-    get_indicator as get_alpha_vantage_indicator,
-    get_fundamentals as get_alpha_vantage_fundamentals,
-    get_balance_sheet as get_alpha_vantage_balance_sheet,
-    get_cashflow as get_alpha_vantage_cashflow,
-    get_income_statement as get_alpha_vantage_income_statement,
-    get_insider_transactions as get_alpha_vantage_insider_transactions,
-    get_news as get_alpha_vantage_news,
-    get_global_news as get_alpha_vantage_global_news,
-)
-from .alpha_vantage_common import AlphaVantageRateLimitError
-
 # TradeStation vendors
 from .tradestation_stock import (
     get_stock_data as get_tradestation_stock_data,
@@ -79,7 +65,6 @@ TOOLS_CATEGORIES = {
 
 VENDOR_LIST = [
     "local_fundamentals",
-    "alpha_vantage",
     "tradestation",
     "rss",
 ]
@@ -88,46 +73,37 @@ VENDOR_LIST = [
 VENDOR_METHODS = {
     # core_stock_apis
     "get_stock_data": {
-        "alpha_vantage": get_alpha_vantage_stock,
         "tradestation": get_tradestation_stock_data,
     },
     # technical_indicators
     "get_indicators": {
-        "alpha_vantage": get_alpha_vantage_indicator,
         "tradestation": get_tradestation_indicators,
     },
-    # fundamental_data — local_fundamentals (SEC EDGAR) is primary, Alpha Vantage + TradeStation are fallbacks
+    # fundamental_data — local_fundamentals (SEC EDGAR) is primary, TradeStation is fallback
     "get_fundamentals": {
         "local_fundamentals": get_local_fundamentals,
-        "alpha_vantage": get_alpha_vantage_fundamentals,
         "tradestation": get_tradestation_fundamentals,
     },
     "get_balance_sheet": {
         "local_fundamentals": get_local_balance_sheet,
-        "alpha_vantage": get_alpha_vantage_balance_sheet,
         "tradestation": get_tradestation_balance_sheet,
     },
     "get_cashflow": {
         "local_fundamentals": get_local_cashflow,
-        "alpha_vantage": get_alpha_vantage_cashflow,
         "tradestation": get_tradestation_cashflow,
     },
     "get_income_statement": {
         "local_fundamentals": get_local_income_statement,
-        "alpha_vantage": get_alpha_vantage_income_statement,
         "tradestation": get_tradestation_income_statement,
     },
     # news_data
     "get_news": {
-        "alpha_vantage": get_alpha_vantage_news,
         "rss": get_rss_news,
     },
     "get_global_news": {
-        "alpha_vantage": get_alpha_vantage_global_news,
         "rss": get_rss_global_news,
     },
     "get_insider_transactions": {
-        "alpha_vantage": get_alpha_vantage_insider_transactions,
         "tradestation": get_tradestation_insider_transactions,
     },
 }
@@ -179,7 +155,7 @@ def route_to_vendor(method: str, *args, **kwargs):
 
         try:
             return impl_func(*args, **kwargs)
-        except AlphaVantageRateLimitError:
-            continue  # Only rate limits trigger fallback
+        except Exception:
+            continue
 
     raise RuntimeError(f"No available vendor for '{method}'")

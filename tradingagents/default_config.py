@@ -38,32 +38,17 @@ DEFAULT_CONFIG = {
     # Data vendor configuration
     # Category-level configuration (default for all tools in category)
     "data_vendors": {
-        "core_stock_apis": "tradestation",    # Options: tradestation, alpha_vantage
-        "technical_indicators": "tradestation",  # Options: tradestation, alpha_vantage
-        "fundamental_data": "local_fundamentals",  # Options: local_fundamentals, alpha_vantage, tradestation
-        "news_data": "rss",                  # Options: rss, alpha_vantage
+        "core_stock_apis": "tradestation",
+        "technical_indicators": "tradestation",
+        "fundamental_data": "local_fundamentals",  # SEC EDGAR scraper — no API key needed
+        "news_data": "rss",
     },
     # Tool-level configuration (takes precedence over category-level)
     "tool_vendors": {
-        # Example: "get_stock_data": "alpha_vantage",  # Override category default
+        # Example: "get_stock_data": "tradestation",  # Override category default
     },
 }
 
-# Local/vLLM configuration variant.
-#
-# Use this when running TradingAgents against a local vLLM endpoint
-# (e.g. Qwen3.6-35B-A3B on gojira's RTX 6000) with TradeStation data
-# and RSS news feeds.
-#
-# Usage:
-#   from tradingagents.default_config import DEFAULT_CONFIG_LOCAL
-#   ta = TradingAgentsGraph(debug=True, config=DEFAULT_CONFIG_LOCAL)
-#
-# Note: This config requires:
-#   - OpenClaw runtime (for TradeStation MCP tools)
-#   - feedparser library (for RSS news): pip install feedparser
-#   - vLLM endpoint accessible at backend_url
-#
 # Local/vLLM configuration variant.
 #
 # Use this when running TradingAgents against a local vLLM endpoint

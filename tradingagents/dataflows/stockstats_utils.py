@@ -3,10 +3,10 @@ import logging
 import os
 
 import pandas as pd
-from stockstats import wrap
 from typing import Annotated
 
 from .config import get_config
+from .local_indicators import compute_all_indicators
 from .tradestation_client import get_client
 
 logger = logging.getLogger(__name__)
@@ -119,11 +119,11 @@ class StockstatsUtils:
         ],
     ):
         data = load_ohlcv(symbol, curr_date)
-        df = wrap(data)
+        df = compute_all_indicators(data)
         df["Date"] = df["Date"].dt.strftime("%Y-%m-%d")
         curr_date_str = pd.to_datetime(curr_date).strftime("%Y-%m-%d")
 
-        df[indicator]  # trigger stockstats to calculate the indicator
+        df[indicator]  # trigger local indicator calculation
         matching_rows = df[df["Date"].str.startswith(curr_date_str)]
 
         if not matching_rows.empty:

@@ -1,15 +1,15 @@
 """TradeStation technical indicators vendor implementation.
 
 Computes technical indicators (RSI, MACD, Bollinger Bands, etc.) from
-TradeStation REST API bar data using stockstats.
+TradeStation REST API bar data using local numpy/pandas implementations.
 
 Uses the standalone TradeStationClient from tradestation_client module.
 """
 
 from datetime import datetime
 import pandas as pd
-from stockstats import wrap
 
+from .local_indicators import compute_all_indicators
 from .tradestation_client import get_client
 
 
@@ -166,16 +166,11 @@ def get_indicators(
         if df.empty:
             return f"No data in the date range {before_dt.strftime('%Y-%m-%d')} to {curr_date}."
 
-        # Wrap with stockstats
-        df_wrapped = wrap(df.copy())
+        # Compute all indicators using local implementations
+        df = compute_all_indicators(df.copy())
 
         # Parse indicator list (single or comma-separated)
         indicator_names = [i.strip() for i in indicator.split(",")]
-
-        # Compute all requested indicators
-        for ind in indicator_names:
-            if ind in _INDICATOR_DESCRIPTIONS:
-                _ = df_wrapped[ind]
 
         # Format output
         header = (
@@ -193,12 +188,12 @@ def get_indicators(
                 lines.append("")
                 continue
 
-            if ind not in df_wrapped.columns:
+            if ind not in df.columns:
                 lines.append(f"## {ind.upper()}: N/A (not computed)")
                 lines.append("")
                 continue
 
-            latest = df_wrapped[ind].iloc[-1]
+            latest = df[ind].iloc[-1]
             if pd.isna(latest) or latest is None:
                 value_str = "N/A"
             else:
@@ -223,9 +218,6 @@ def get_indicator(
     look_back_days: int = 90,
 ) -> str:
     """Get a specific technical indicator for a date window.
-
-    Matches the signature of alpha_vantage.get_indicator and
-    yfinance.get_stock_stats_indicators_window for compatibility.
 
     Args:
         symbol: Ticker symbol
@@ -272,15 +264,15 @@ def get_indicator(
         if df.empty:
             return f"No data in the date range {before_dt.strftime('%Y-%m-%d')} to {curr_date}."
 
-        # Wrap with stockstats
-        df_wrapped = wrap(df.copy())
+        # Compute all indicators using local implementations
+        df = compute_all_indicators(df.copy())
 
-        # Trigger calculation
-        _ = df_wrapped[indicator]
+        # Trigger calculation (ensures column exists)
+        _ = df[indicator]
 
         # Build output
         ind_string = ""
-        for _, row in df_wrapped.iterrows():
+        for _, row in df.iterrows():
             date_str = row["Date"].strftime("%Y-%m-%d")
             value = row[indicator]
             if pd.isna(value):
