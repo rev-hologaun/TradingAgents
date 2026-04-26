@@ -465,15 +465,19 @@ def _get_filings_urls(cik: str, filing_type: str = "10-K") -> List[Dict]:
         if resp.status_code == 200:
             data = resp.json()
             filings_list = data.get("filings", {}).get("recent", {})
-            accessions = filings_list.get("accessionNumbers", [])
+
+            # SEC EDGAR JSON API uses singular key names (changed from plural)
+            # Old: accessionNumbers, filingDates, reportDates
+            # New: accessionNumber, filingDate, reportDate
+            accessions = filings_list.get("accessionNumber", [])
             filing_forms = filings_list.get("form", [])
-            filing_dates = filings_list.get("filingDates", [])
+            filing_dates = filings_list.get("filingDate", [])
 
             filings = []
             for i in range(len(accessions)):
                 form = filing_forms[i].upper().replace("-", "") if i < len(filing_forms) else ""
-                # Filter for 10-K and 10-Q only
-                if form not in ("10-K", "10-Q"):
+                # Filter for 10-K and 10-Q only (API returns "10-K" which becomes "10K" after strip)
+                if form not in ("10K", "10Q"):
                     continue
 
                 accession = accessions[i].replace("-", "") if i < len(accessions) else ""

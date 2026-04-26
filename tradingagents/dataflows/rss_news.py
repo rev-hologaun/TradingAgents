@@ -24,8 +24,8 @@ DEFAULT_RSS_FEEDS = [
         "url": "https://feeds.bloomberg.com/markets/news.rss",
     },
     {
-        "name": "Reuters",
-        "url": "https://feeds.reuters.com/reuters/topNews",
+        "name": "Yahoo Finance",
+        "url": "https://finance.yahoo.com/news/rssindex",
     },
     {
         "name": "CNBC Markets",
