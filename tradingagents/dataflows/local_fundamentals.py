@@ -39,6 +39,7 @@ from tradingagents.dataflows.sec_edgar_client import (
     SecEdgarClient,
     _format_number as _sec_format_number,
     SEC_CACHE_TTL_HOURS,
+    XBRL_CONCEPT_MAP,
 )
 
 # ─── Configuration ───────────────────────────────────────────────────────────
@@ -222,9 +223,10 @@ def _get_current_price(ticker: str) -> Optional[float]:
 def fetch_fundamentals(ticker: str, curr_date: str = None, look_back_days: int = 365) -> Dict[str, Any]:
     """Fetch fundamental data for a ticker from SEC EDGAR.
 
-    Uses the SEC EDGAR Submissions API to find recent 10-K/10-Q filings,
-    downloads the filing content, parses financial data, and calculates
-    derived metrics.
+    PRIMARY DATA SOURCE: XBRL Company Facts API (data.sec.gov/api/xbrl/companyfacts/)
+    Returns structured JSON with all XBRL-tagged financial line items.
+
+    FALLBACK: /Archives/ document parsing (HTML regex) if XBRL data is incomplete.
 
     Args:
         ticker: Stock ticker symbol (e.g., "AAPL")
@@ -239,6 +241,7 @@ def fetch_fundamentals(ticker: str, curr_date: str = None, look_back_days: int =
             "filing_date": str,
             "report_date": str,
             "filing_type": str,
+            "data_source": "xbrl_company_facts" | "document_parsing_fallback",
             "raw": Dict[str, float],  # Parsed financial line items
             "metrics": Dict[str, float],  # Derived ratios
         }
@@ -273,10 +276,44 @@ def fetch_fundamentals(ticker: str, curr_date: str = None, look_back_days: int =
             "ticker": ticker,
         }
 
-    # Get latest 10-K filing
+    # ── PRIMARY: XBRL Company Facts API ────────────────────────────────
+    logger.info(f"Fetching XBRL Company Facts for {ticker} (CIK: {cik})")
+    xbrl_raw = client.get_xbrl_facts(cik, form_types=["10-K"])
+    xbrl_field_count = len(xbrl_raw)
+    logger.info(f"XBRL returned {xbrl_field_count} fields for {ticker}")
+
+    if xbrl_field_count >= 5:
+        # XBRL returned sufficient data — use it as primary source
+        logger.info(f"Using XBRL data as primary source for {ticker} ({xbrl_field_count} fields)")
+
+        # Get filing metadata from Submissions API for context
+        filings = client.get_10k_filings(cik, limit=1)
+        latest = filings[0] if filings else {}
+
+        raw = {k: _format_number(v) for k, v in xbrl_raw.items()}
+        metrics = _calculate_metrics(raw, price)
+
+        result = {
+            "ticker": ticker,
+            "cik": cik,
+            "filing_date": latest.get("filingDate", ""),
+            "report_date": latest.get("reportDate", ""),
+            "filing_type": latest.get("form", "10-K"),
+            "data_source": "xbrl_company_facts",
+            "raw": raw,
+            "metrics": metrics,
+        }
+
+        # Cache the result
+        _save_cache(ticker, "annual", result)
+        return result
+
+    # ── FALLBACK: Document parsing via /Archives/ endpoint ─────────────
+    # XBRL data was insufficient — fall back to parsing filing documents
+    logger.warning(f"XBRL returned only {xbrl_field_count} fields for {ticker}, falling back to document parsing")
+
     filings = client.get_10k_filings(cik, limit=5)
     if not filings:
-        # Try 10-Q as fallback
         filings = client.get_10q_filings(cik, limit=10)
 
     if not filings:
@@ -286,22 +323,28 @@ def fetch_fundamentals(ticker: str, curr_date: str = None, look_back_days: int =
             "cik": cik,
         }
 
-    # Fetch the most recent filing
     latest = filings[0]
     content = client.get_filing_content(cik, latest["accessionNumber"])
 
     if not content:
         return {
-            "error": f"Could not download filing for {ticker}",
+            "error": f"Could not download filing for {ticker} (XBRL insufficient + /Archives/ failed). "
+                     f"CIK: {cik}, Filing: {latest.get('filingDate', '')}",
             "ticker": ticker,
             "cik": cik,
             "filing_date": latest.get("filingDate", ""),
+            "xbrl_fields_found": xbrl_field_count,
         }
 
-    # Parse filing content (XBRL first, then HTML regex fallback)
+    # Parse filing content (XBRL tags in HTML first, then regex fallback)
     raw = client.parse_filing_content(content)
+    raw = {k: _format_number(v) for k, v in raw.items()}
 
-    # Calculate derived metrics
+    # Merge XBRL data on top of document parsing (XBRL values override)
+    for k, v in xbrl_raw.items():
+        if k not in raw or raw[k] is None:
+            raw[k] = _format_number(v)
+
     metrics = _calculate_metrics(raw, price)
 
     result = {
@@ -310,7 +353,8 @@ def fetch_fundamentals(ticker: str, curr_date: str = None, look_back_days: int =
         "filing_date": latest.get("filingDate", ""),
         "report_date": latest.get("reportDate", ""),
         "filing_type": latest.get("form", "10-K"),
-        "raw": {k: _format_number(v) for k, v in raw.items()},
+        "data_source": "document_parsing_fallback",
+        "raw": raw,
         "metrics": metrics,
     }
 

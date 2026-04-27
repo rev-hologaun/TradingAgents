@@ -2,14 +2,16 @@
 
 Uses SEC's official EDGAR APIs (no API keys needed) to fetch:
 - Company filings (10-K, 10-Q, 8-K, etc.) via Submissions API
-- Financial data from filing documents via HTML parsing
+- Structured financial data via XBRL Company Facts API (PRIMARY)
+- Filing documents via /Archives/ endpoint (FALLBACK)
 
 Architecture:
 1. CIK lookup — static mapping + SEC ticker-to-CIK endpoint
-2. Fetch filings — Submissions API returns structured JSON
-3. Fetch filing content — download HTML/TXT filing documents
-4. Parse financial data — extract income statement, balance sheet, cash flow
-5. Cache — local JSON files, 24-hour TTL
+2. Fetch XBRL facts — Company Facts API returns structured JSON (PRIMARY)
+3. Fetch filings — Submissions API for filing metadata
+4. Fallback — download HTML/TXT filing documents via /Archives/ endpoint
+5. Parse financial data — XBRL tags first, HTML regex fallback
+6. Cache — local JSON files, 24-hour TTL
 
 References:
 - Submissions API: https://www.sec.gov/files/qa_filingdata497_2018.pdf
@@ -109,7 +111,75 @@ CIK_MAP = {
 }
 
 
-# ─── Financial Field Mappings ────────────────────────────────────────────────
+# ─── XBRL Concept Mappings ──────────────────────────────────────────────────
+
+# Maps internal field names to SEC XBRL concept names (us-gaap taxonomy).
+# The XBRL Company Facts API returns data organized by taxonomy → concept → unit → facts.
+# Each fact has: val (value in units), filed (filing date), end (report period), form (10-K/10-Q).
+# We filter by form type, sort by end date, and take the latest value.
+XBRL_CONCEPT_MAP = {
+    # Income Statement
+    "revenue": [
+        "us-gaap_Revenue",
+        "us-gaap_SalesRevenueNet",
+        "us-gaap_SalesRevenueGoodsAndServicesNet",
+    ],
+    "cost_of_revenue": ["us-gaap_CostOfRevenue"],
+    "gross_profit": ["us-gaap_GrossProfit"],
+    "operating_expenses": ["us-gaap_OperatingExpenses"],
+    "research_development": ["us-gaap_ResearchAndDevelopmentExpense"],
+    "operating_income": ["us-gaap_OperatingIncomeLoss"],
+    "interest_expense": ["us-gaap_InterestExpense"],
+    "other_income_expense": ["us-gaap_NonOperatingIncomeExpense"],
+    "income_before_tax": [
+        "us-gaap_IncomeFromContinuingOperationsBeforeDedistributionsAndTaxExpenses",
+        "us-gaap_IncomeFromContinuingOperationsBeforeTax",
+    ],
+    "income_tax_expense": ["us-gaap_IncomeTaxExpenseBenefit"],
+    "net_income": ["us-gaap_NetIncomeLoss", "us-gaap_NetIncome"],
+    "eps_basic": ["us-gaap_EarningsPerShareBasic"],
+    "eps_diluted": ["us-gaap_EarningsPerShareDiluted"],
+    # Balance Sheet
+    "cash_and_equivalents": ["us-gaap_CashAndCashEquivalentsAtCarryingValue", "us-gaap_Cash"],
+    "short_term_investments": ["us-gaap_ShortTermInvestments"],
+    "accounts_receivable": ["us-gaap_AccountsReceivableNetCurrent"],
+    "inventory": ["us-gaap_InventoryNet"],
+    "total_current_assets": ["us-gaap_AssetsCurrent"],
+    "property_plant_equipment": ["us-gaap_PropertyPlantAndEquipmentNet"],
+    "goodwill": ["us-gaap_Goodwill"],
+    "total_assets": ["us-gaap_Assets"],
+    "accounts_payable": ["us-gaap_AccountsPayableCurrent"],
+    "total_current_liabilities": ["us-gaap_LiabilitiesCurrent"],
+    "long_term_debt": ["us-gaap_LongTermDebt"],
+    "total_liabilities": ["us-gaap_Liabilities"],
+    "total_equity": ["us-gaap_StockholdersEquity", "us-gaap_StockholdersEquityIncludingNoncontrollingInterests"],
+    # Cash Flow
+    "operating_cash_flow": [
+        "us-gaap_NetCashProvidedByUsedInOperatingActivitiesContinuingOperations",
+        "us-gaap_NetCashProvidedByUsedInOperatingActivities",
+    ],
+    "capex": ["us-gaap_PaymentsToAcquirePropertyPlantAndEquipment"],
+    "investing_cash_flow": [
+        "us-gaap_NetCashProvidedByUsedInInvestingActivitiesContinuingOperations",
+        "us-gaap_NetCashProvidedByUsedInInvestingActivities",
+    ],
+    "financing_cash_flow": [
+        "us-gaap_NetCashProvidedByUsedInFinancingActivitiesContinuingOperations",
+        "us-gaap_NetCashProvidedByUsedInFinancingActivities",
+    ],
+    "shares_outstanding": [
+        "us-gaap_WeightedAverageNumberOfDilutedSharesOutstanding",
+        "us-gaap_SharesOutstanding",
+    ],
+    # Additional fields for completeness
+    "retained_earnings": ["us-gaap_RetainedEarningsAccumulatedDeficit"],
+    "current_assets": ["us-gaap_AssetsCurrent"],
+    "current_liabilities": ["us-gaap_LiabilitiesCurrent"],
+    "debt": ["us-gaap_LongTermDebt"],
+}
+
+
+# ─── Financial Field Mappings (HTML regex fallback) ──────────────────────────
 
 # Maps internal field names to patterns found in SEC filing HTML/TXT
 # Priority order: XBRL tags > HTML regex patterns
@@ -624,21 +694,133 @@ class SecEdgarClient:
 
         return result
 
-    # ─── Company Facts API (XBRL) ──────────────────────────────────────
+    # ─── XBRL Company Facts API (PRIMARY DATA SOURCE) ──────────────────
+
+    def get_xbrl_facts(self, cik: str, form_types: Optional[List[str]] = None,
+                       as_of_date: Optional[str] = None) -> Dict[str, Any]:
+        """Fetch XBRL-tagged financial facts via the SEC Company Facts API.
+
+        This is the PRIMARY data source for fundamental analysis. Returns
+        structured JSON with all XBRL-tagged financial line items, organized
+        by taxonomy → concept → unit → period.
+
+        API docs: https://www.sec.gov/edgar/searchedgar/webxbrl.htm
+        Endpoint: https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json
+
+        Response structure:
+        {
+            "facts": {
+                "us-gaap": {
+                    "NetIncomeLoss": {
+                        "units": {
+                            "USD": [{"val": 12345, "unit": "USD",
+                                     "end": "2025-09-27", "form": "10-K",
+                                     "accesionNumber": "...",
+                                     "filed": "2025-11-15"}]
+                        }
+                    }
+                }
+            }
+        }
+
+        Args:
+            cik: CIK code (zero-padded)
+            form_types: Filter by form types (e.g., ["10-K", "10-Q"]).
+                        Defaults to ["10-K"] (annual only).
+            as_of_date: Optional date to filter to. If provided, returns the
+                        most recent filing on or before this date.
+
+        Returns:
+            Dict mapping field_name → numeric_value (e.g., {"net_income": 12345.0}).
+            Only fields with valid data are included.
+        """
+        if form_types is None:
+            form_types = ["10-K"]
+
+        cik = cik.zfill(10)
+        cache_key = f"xbrl_{cik}_{form_types}"
+        cached = self._load_cache(cache_key)
+        if cached is not None:
+            return cached
+
+        url = f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
+        resp = self._get(url)
+        if not resp:
+            return {}
+
+        try:
+            data = resp.json()
+        except json.JSONDecodeError:
+            logger.warning(f"Invalid JSON from XBRL Company Facts API for CIK {cik}")
+            return {}
+
+        # Parse the structured XBRL data
+        facts_data = data.get("facts", {})
+        result = {}
+
+        for field_name, xbrl_concepts in XBRL_CONCEPT_MAP.items():
+            for concept in xbrl_concepts:
+                # Navigate: taxonomy → concept → units → facts
+                taxonomy_data = facts_data.get(concept, {})
+                units_data = taxonomy_data.get("units", {})
+                usd_units = units_data.get("USD", [])
+                shares_units = units_data.get("shares", [])
+
+                # Determine which unit list to use
+                # Most fields use USD; shares_outstanding uses shares
+                if field_name == "shares_outstanding":
+                    fact_list = shares_units if shares_units else usd_units
+                else:
+                    fact_list = usd_units
+
+                if not fact_list:
+                    continue
+
+                # Filter by form type
+                filtered = [
+                    f for f in fact_list
+                    if any(ft.replace("-", "").upper() == f.get("form", "").replace("-", "")
+                           for ft in form_types)
+                ]
+
+                if not filtered:
+                    continue
+
+                # Sort by report date (most recent first)
+                filtered.sort(key=lambda x: x.get("end", ""), reverse=True)
+
+                # Apply as_of_date filter if specified
+                if as_of_date:
+                    filtered = [f for f in filtered if f.get("end", "") <= as_of_date]
+                    if not filtered:
+                        continue
+                    # Re-sort after filtering
+                    filtered.sort(key=lambda x: x.get("end", ""), reverse=True)
+
+                # Take the most recent value
+                latest = filtered[0]
+                val = latest.get("val")
+                if val is not None:
+                    result[field_name] = float(val)
+                    break  # Found a value for this field
+
+        # Cache the parsed result
+        self._save_cache(cache_key, result)
+        return result
 
     def get_company_facts(self, cik: str) -> Optional[Dict[str, Any]]:
-        """Get all XBRL-tagged financial facts for a company.
+        """Get raw XBRL Company Facts API response for debugging.
 
-        Uses the XBRL Company Facts API. May return 0 periods for some
-        companies — use with caution as supplementary data.
+        DEPRECATED: Use get_xbrl_facts() instead for parsed financial data.
+        This returns the raw API response structure.
 
         Args:
             cik: CIK code
 
         Returns:
-            Dict with facts data, or None on failure.
+            Raw API response dict, or None on failure.
         """
-        cache_key = f"facts_{cik}"
+        cache_key = f"facts_raw_{cik}"
         cached = self._load_cache(cache_key)
         if cached is not None:
             return cached
