@@ -278,7 +278,7 @@ def fetch_fundamentals(ticker: str, curr_date: str = None, look_back_days: int =
 
     # ── PRIMARY: XBRL Company Facts API ────────────────────────────────
     logger.info(f"Fetching XBRL Company Facts for {ticker} (CIK: {cik})")
-    xbrl_raw = client.get_xbrl_facts(cik, form_types=["10-K"])
+    xbrl_raw = client.get_xbrl_facts(cik, form_types=["10-K", "10-Q"])
     xbrl_field_count = len(xbrl_raw)
     logger.info(f"XBRL returned {xbrl_field_count} fields for {ticker}")
 

@@ -758,10 +758,20 @@ class SecEdgarClient:
         facts_data = data.get("facts", {})
         result = {}
 
+        # Debug: collect all form types and total facts across all concepts
+        all_forms_seen = set()
+        total_facts_before_filter = 0
+
         for field_name, xbrl_concepts in XBRL_CONCEPT_MAP.items():
             for concept in xbrl_concepts:
+                # Split concept string into taxonomy and name (e.g., "us-gaap_NetIncomeLoss" → "us-gaap", "NetIncomeLoss")
+                parts = concept.split("_", 1)
+                if len(parts) != 2:
+                    continue
+                taxonomy_name, concept_name = parts
+
                 # Navigate: taxonomy → concept → units → facts
-                taxonomy_data = facts_data.get(concept, {})
+                taxonomy_data = facts_data.get(taxonomy_name, {}).get(concept_name, {})
                 units_data = taxonomy_data.get("units", {})
                 usd_units = units_data.get("USD", [])
                 shares_units = units_data.get("shares", [])
@@ -776,12 +786,29 @@ class SecEdgarClient:
                 if not fact_list:
                     continue
 
-                # Filter by form type
+                # Collect form types from this concept's facts for debugging
+                for f in fact_list:
+                    all_forms_seen.add(f.get("form", "UNKNOWN"))
+                    total_facts_before_filter += 1
+
+                # Normalize form_types filter values once (consistent normalization)
+                form_filters_normalized = [ft.replace("-", "").upper() for ft in form_types]
+
+                # Filter by form type using normalized comparison on BOTH sides.
+                # Uses startswith so "10-K/A" (→ "10KA") matches filter "10-K" (→ "10K").
                 filtered = [
                     f for f in fact_list
-                    if any(ft.replace("-", "").upper() == f.get("form", "").replace("-", "")
-                           for ft in form_types)
+                    if any(
+                        f.get("form", "").replace("-", "").upper().startswith(ft_norm)
+                        for ft_norm in form_filters_normalized
+                    )
                 ]
+
+                logger.debug(
+                    f"{field_name}/{concept}: {len(fact_list)} total facts, "
+                    f"{len(filtered)} matched form_types={form_types}, "
+                    f"forms_seen={sorted(all_forms_seen)}"
+                )
 
                 if not filtered:
                     continue
@@ -803,6 +830,13 @@ class SecEdgarClient:
                 if val is not None:
                     result[field_name] = float(val)
                     break  # Found a value for this field
+
+        # Summary debug log
+        logger.info(
+            f"XBRL facts for CIK {cik}: {total_facts_before_filter} total facts across "
+            f"{len(all_forms_seen)} form types ({sorted(all_forms_seen)}), "
+            f"matched {len(result)} fields with form_types={form_types}"
+        )
 
         # Cache the parsed result
         self._save_cache(cache_key, result)
