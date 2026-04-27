@@ -88,15 +88,16 @@ _TICKER_ALIASES = {
 }
 
 
-def _fetch_feed(feed_url: str, timeout: int = 15) -> Optional[list]:
+def _fetch_feed(feed_url: str, timeout: int = 15, limit: int = 5) -> Optional[list]:
     """Fetch and parse a single RSS feed.
 
     Args:
         feed_url: RSS feed URL
         timeout: Request timeout in seconds
+        limit: Maximum number of articles to pull per feed (default 5)
 
     Returns:
-        List of article dicts, or None on failure
+        List of article dicts (up to `limit`), or None on failure
     """
     try:
         resp = requests.get(feed_url, timeout=timeout, headers={
@@ -113,7 +114,9 @@ def _fetch_feed(feed_url: str, timeout: int = 15) -> Optional[list]:
                 pass
 
             entries = []
-            for entry in feed.entries:
+            for i, entry in enumerate(feed.entries):
+                if i >= limit:
+                    break
                 title = entry.get("title", "").strip()
                 summary = entry.get("summary", entry.get("description", "")).strip()
                 link = entry.get("link", "")
@@ -142,7 +145,7 @@ def _fetch_feed(feed_url: str, timeout: int = 15) -> Optional[list]:
             return entries
         except ImportError:
             # feedparser not available — do basic text parsing
-            return _parse_rss_basic(resp.text, feed_url)
+            return _parse_rss_basic(resp.text, feed_url, limit)
 
     except requests.RequestException as e:
         print(f"Warning: Failed to fetch feed {feed_url}: {e}")
