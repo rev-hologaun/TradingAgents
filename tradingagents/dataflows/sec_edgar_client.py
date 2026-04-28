@@ -120,7 +120,7 @@ CIK_MAP = {
 XBRL_CONCEPT_MAP = {
     # Income Statement
     "revenue": [
-        "us-gaap_Revenue",
+        "us-gaap_Revenues",                    # TSLA uses this (not Revenue/SalesRevenueNet)
         "us-gaap_SalesRevenueNet",
         "us-gaap_SalesRevenueGoodsAndServicesNet",
     ],
@@ -132,6 +132,7 @@ XBRL_CONCEPT_MAP = {
     "interest_expense": ["us-gaap_InterestExpense"],
     "other_income_expense": ["us-gaap_NonOperatingIncomeExpense"],
     "income_before_tax": [
+        "us-gaap_IncomeLossFromContinuingOperationsBeforeIncomeTaxesDomestic",  # TSLA uses this
         "us-gaap_IncomeFromContinuingOperationsBeforeDedistributionsAndTaxExpenses",
         "us-gaap_IncomeFromContinuingOperationsBeforeTax",
     ],
@@ -186,7 +187,7 @@ XBRL_CONCEPT_MAP = {
 FINANCIAL_FIELDS = {
     # Income Statement
     "revenue": {
-        "xbrl_tags": ["us-gaap_Revenue", "us-gaap_SalesRevenueNet", "us-gaap_SalesRevenueGoodsAndServicesNet"],
+        "xbrl_tags": ["us-gaap_Revenues", "us-gaap_Revenue", "us-gaap_SalesRevenueNet", "us-gaap_SalesRevenueGoodsAndServicesNet"],
         "html_patterns": [
             r"(?:Total\s+)?(?:Net\s+)?(?:Sales\s+)?(?:Revenue|Revenues)\s*(?:\(|:)\s*[\$]?([\d,\.]+)",
             r"Total\s+Revenue\s*(?:\(|:)\s*[\$]?([\d,\.]+)",
@@ -778,8 +779,13 @@ class SecEdgarClient:
 
                 # Determine which unit list to use
                 # Most fields use USD; shares_outstanding uses shares
+                # EPS fields use USD/shares (per-share amount)
+                eps_fields = {"eps_basic", "eps_diluted"}
                 if field_name == "shares_outstanding":
                     fact_list = shares_units if shares_units else usd_units
+                elif field_name in eps_fields:
+                    # EPS is reported in USD per share (unit = "USD/shares")
+                    fact_list = usd_units or shares_units or units_data.get("USD/shares", [])
                 else:
                     fact_list = usd_units
 
