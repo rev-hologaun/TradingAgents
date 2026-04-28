@@ -763,28 +763,43 @@ class SecEdgarClient:
         all_forms_seen = set()
         total_facts_before_filter = 0
 
+        # ── Period-matching logic ──────────────────────────────────────
+        # Collect all report periods across all concepts and find the
+        # most common filing period.  This ensures all fields come from
+        # the same filing period rather than independently picking the
+        # latest value for each concept (which can pull from different
+        # quarters/years and produce impossible values like
+        # gross_profit > revenue).
+        #
+        # Strategy:
+        #   1. For each concept, collect the (end_date, form) of every fact.
+        #   2. Group concepts by their most recent matching report period.
+        #   3. Pick the most common (report_date, form) pair as the
+        #      "common period" and extract all fields from that period.
+        #   4. If a field has no data in the common period, fall back to
+        #      that field's latest available value.
+        #
+        # The common period is determined by finding the (end_date, form)
+        # combination that appears most frequently across all concepts.
+
+        # Step 1: Gather all (end_date, form) periods for every concept
+        concept_periods = {}  # field_name → list of (end_date, form, fact)
         for field_name, xbrl_concepts in XBRL_CONCEPT_MAP.items():
             for concept in xbrl_concepts:
-                # Split concept string into taxonomy and name (e.g., "us-gaap_NetIncomeLoss" → "us-gaap", "NetIncomeLoss")
                 parts = concept.split("_", 1)
                 if len(parts) != 2:
                     continue
                 taxonomy_name, concept_name = parts
 
-                # Navigate: taxonomy → concept → units → facts
                 taxonomy_data = facts_data.get(taxonomy_name, {}).get(concept_name, {})
                 units_data = taxonomy_data.get("units", {})
                 usd_units = units_data.get("USD", [])
                 shares_units = units_data.get("shares", [])
 
-                # Determine which unit list to use
-                # Most fields use USD; shares_outstanding uses shares
-                # EPS fields use USD/shares (per-share amount)
                 eps_fields = {"eps_basic", "eps_diluted"}
                 if field_name == "shares_outstanding":
                     fact_list = shares_units if shares_units else usd_units
                 elif field_name in eps_fields:
-                    # EPS is reported in USD per share (unit = "USD/shares")
                     fact_list = usd_units or shares_units or units_data.get("USD/shares", [])
                 else:
                     fact_list = usd_units
@@ -792,16 +807,13 @@ class SecEdgarClient:
                 if not fact_list:
                     continue
 
-                # Collect form types from this concept's facts for debugging
                 for f in fact_list:
                     all_forms_seen.add(f.get("form", "UNKNOWN"))
                     total_facts_before_filter += 1
 
-                # Normalize form_types filter values once (consistent normalization)
+                # Normalize form_types filter
                 form_filters_normalized = [ft.replace("-", "").upper() for ft in form_types]
 
-                # Filter by form type using normalized comparison on BOTH sides.
-                # Uses startswith so "10-K/A" (→ "10KA") matches filter "10-K" (→ "10K").
                 filtered = [
                     f for f in fact_list
                     if any(
@@ -819,23 +831,150 @@ class SecEdgarClient:
                 if not filtered:
                     continue
 
-                # Sort by report date (most recent first)
                 filtered.sort(key=lambda x: x.get("end", ""), reverse=True)
 
-                # Apply as_of_date filter if specified
                 if as_of_date:
                     filtered = [f for f in filtered if f.get("end", "") <= as_of_date]
                     if not filtered:
                         continue
-                    # Re-sort after filtering
                     filtered.sort(key=lambda x: x.get("end", ""), reverse=True)
 
-                # Take the most recent value
-                latest = filtered[0]
-                val = latest.get("val")
-                if val is not None:
-                    result[field_name] = float(val)
-                    break  # Found a value for this field
+                # Collect unique (end_date, form) pairs for this concept
+                seen_periods = set()
+                for f in filtered:
+                    period = f.get("end", "")
+                    form = f.get("form", "")
+                    key = (period, form)
+                    if key not in seen_periods:
+                        seen_periods.add(key)
+                        if field_name not in concept_periods:
+                            concept_periods[field_name] = []
+                        concept_periods[field_name].append((period, form, f))
+
+        # Step 2: Find the most common (end_date, form) across all concepts
+        period_counts = {}
+        for field_name, periods in concept_periods.items():
+            for period, form, _ in periods:
+                key = (period, form)
+                period_counts[key] = period_counts.get(key, 0) + 1
+
+        # Pick the period with the most concept coverage
+        common_period = None
+        if period_counts:
+            common_period = max(period_counts, key=period_counts.get)
+            logger.info(
+                f"Period-matching for CIK {cik}: most common period = "
+                f"{common_period[0]} ({common_period[1]}) covering "
+                f"{period_counts[common_period]} concepts"
+            )
+
+        # Step 3: Extract all fields from the common period, falling back
+        # to latest-available for fields missing from that period.
+        for field_name, xbrl_concepts in XBRL_CONCEPT_MAP.items():
+            found = False
+
+            if common_period is not None:
+                # Try the common period first
+                for concept in xbrl_concepts:
+                    parts = concept.split("_", 1)
+                    if len(parts) != 2:
+                        continue
+                    taxonomy_name, concept_name = parts
+                    taxonomy_data = facts_data.get(taxonomy_name, {}).get(concept_name, {})
+                    units_data = taxonomy_data.get("units", {})
+                    usd_units = units_data.get("USD", [])
+                    shares_units = units_data.get("shares", [])
+
+                    eps_fields = {"eps_basic", "eps_diluted"}
+                    if field_name == "shares_outstanding":
+                        fact_list = shares_units if shares_units else usd_units
+                    elif field_name in eps_fields:
+                        fact_list = usd_units or shares_units or units_data.get("USD/shares", [])
+                    else:
+                        fact_list = usd_units
+
+                    if not fact_list:
+                        continue
+
+                    form_filters_normalized = [ft.replace("-", "").upper() for ft in form_types]
+                    filtered = [
+                        f for f in fact_list
+                        if any(
+                            f.get("form", "").replace("-", "").upper().startswith(ft_norm)
+                            for ft_norm in form_filters_normalized
+                        )
+                    ]
+
+                    if as_of_date:
+                        filtered = [f for f in filtered if f.get("end", "") <= as_of_date]
+
+                    if not filtered:
+                        continue
+
+                    filtered.sort(key=lambda x: x.get("end", ""), reverse=True)
+
+                    # Find the fact matching the common period
+                    for f in filtered:
+                        if f.get("end", "") == common_period[0]:
+                            val = f.get("val")
+                            if val is not None:
+                                result[field_name] = float(val)
+                                found = True
+                                break
+
+                    if found:
+                        break
+
+            if not found:
+                # Fallback: take the latest available value for this field
+                for concept in xbrl_concepts:
+                    parts = concept.split("_", 1)
+                    if len(parts) != 2:
+                        continue
+                    taxonomy_name, concept_name = parts
+                    taxonomy_data = facts_data.get(taxonomy_name, {}).get(concept_name, {})
+                    units_data = taxonomy_data.get("units", {})
+                    usd_units = units_data.get("USD", [])
+                    shares_units = units_data.get("shares", [])
+
+                    eps_fields = {"eps_basic", "eps_diluted"}
+                    if field_name == "shares_outstanding":
+                        fact_list = shares_units if shares_units else usd_units
+                    elif field_name in eps_fields:
+                        fact_list = usd_units or shares_units or units_data.get("USD/shares", [])
+                    else:
+                        fact_list = usd_units
+
+                    if not fact_list:
+                        continue
+
+                    form_filters_normalized = [ft.replace("-", "").upper() for ft in form_types]
+                    filtered = [
+                        f for f in fact_list
+                        if any(
+                            f.get("form", "").replace("-", "").upper().startswith(ft_norm)
+                            for ft_norm in form_filters_normalized
+                        )
+                    ]
+
+                    if as_of_date:
+                        filtered = [f for f in filtered if f.get("end", "") <= as_of_date]
+
+                    if not filtered:
+                        continue
+
+                    filtered.sort(key=lambda x: x.get("end", ""), reverse=True)
+
+                    latest = filtered[0]
+                    val = latest.get("val")
+                    if val is not None:
+                        result[field_name] = float(val)
+                        logger.debug(
+                            f"{field_name}: fallback to latest value "
+                            f"{val} from period {latest.get('end', '')} "
+                            f"(not in common period {common_period})"
+                        )
+                        break
 
         # Summary debug log
         logger.info(

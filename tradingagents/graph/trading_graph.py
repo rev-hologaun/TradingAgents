@@ -370,13 +370,33 @@ class TradingAgentsGraph:
 
         if self.debug:
             trace = []
+            printed_contents = set()  # deduplicate identical output across chunks
             for chunk in self.graph.stream(init_agent_state, **args):
                 if len(chunk["messages"]) == 0:
                     pass
                 else:
-                    chunk["messages"][-1].pretty_print()
+                    last_msg = chunk["messages"][-1]
+                    # Only print if this message content is different from what we've already printed.
+                    # This prevents the same PM decision from being printed multiple times
+                    # when stream_mode="values" produces one chunk per graph node
+                    # (Msg Clear nodes leave a "Continue" placeholder, PM outputs the decision,
+                    #  and the graph has multiple nodes that can produce chunks).
+                    content_key = str(last_msg.content) if last_msg.content else ""
+                    # Safely access tool_calls (HumanMessage has no tool_calls attr)
+                    tool_calls = getattr(last_msg, "tool_calls", None) or []
+                    tool_call_key = str(tool_calls) if tool_calls else ""
+                    if content_key and content_key in printed_contents:
+                        pass  # skip duplicate
+                    elif tool_call_key and tool_call_key in printed_contents:
+                        pass  # skip duplicate tool calls
+                    else:
+                        if content_key:
+                            printed_contents.add(content_key)
+                        if tool_call_key:
+                            printed_contents.add(tool_call_key)
+                        last_msg.pretty_print()
                     trace.append(chunk)
-            final_state = trace[-1]
+            final_state = trace[-1] if trace else None
         else:
             final_state = self.graph.invoke(init_agent_state, **args)
 
