@@ -80,3 +80,35 @@ DEFAULT_CONFIG_LOCAL = {
         "news_data": "rss",
     },
 }
+
+# Gemma configuration variant.
+#
+# Use this when running TradingAgents against the Gemma-4-26B endpoint
+# (cloud19/gemma-4-26B-A4B-it-heretic-FP8-Static) with TradeStation data
+# and RSS news feeds.
+#
+# Usage:
+#   from tradingagents.default_config import DEFAULT_CONFIG_GEMMA
+#   ta = TradingAgentsGraph(debug=True, config=DEFAULT_CONFIG_GEMMA)
+#
+# Note: This config requires:
+#   - OpenClaw runtime (for TradeStation MCP tools)
+#   - feedparser library (for RSS news): pip install feedparser
+#   - Gemma endpoint accessible at backend_url
+#   - SEC EDGAR access for fundamentals (free, no API key needed)
+#
+# All data sources are now self-contained: TradeStation (OHLCV/quotes),
+# local_fundamentals (SEC EDGAR), RSS (news). No external API keys required.
+DEFAULT_CONFIG_GEMMA = {
+    **DEFAULT_CONFIG,
+    "llm_provider": "openai",
+    "backend_url": "http://192.168.50.144:8040/v1",
+    "deep_think_llm": "cloud19/gemma-4-26B-A4B-it-heretic-FP8-Static",
+    "quick_think_llm": "cloud19/gemma-4-26B-A4B-it-heretic-FP8-Static",
+    "data_vendors": {
+        "core_stock_apis": "tradestation",
+        "technical_indicators": "tradestation",
+        "fundamental_data": "local_fundamentals",  # SEC EDGAR scraper — no API key needed
+        "news_data": "rss",
+    },
+}
