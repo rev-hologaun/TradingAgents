@@ -323,10 +323,14 @@ class TradingAgentsGraph:
         with a per-ticker SqliteSaver so a crashed run can resume from the last
         successful node on a subsequent invocation with the same ticker+date.
         """
+        import time as _time
+        t0 = _time.time()
         self.ticker = company_name
 
         # Resolve any pending memory-log entries for this ticker before the pipeline runs.
+        _t = _time.time()
         self._resolve_pending_entries(company_name)
+        logger.info("[TIMING] _resolve_pending_entries: %.1fs", _time.time() - _t)
 
         # Recompile with a checkpointer if the user opted in.
         if self.config.get("checkpoint_enabled"):
@@ -347,20 +351,27 @@ class TradingAgentsGraph:
                 logger.info("Starting fresh for %s on %s", company_name, trade_date)
 
         try:
-            return self._run_graph(company_name, trade_date)
+            result = self._run_graph(company_name, trade_date)
         finally:
             if self._checkpointer_ctx is not None:
                 self._checkpointer_ctx.__exit__(None, None, None)
                 self._checkpointer_ctx = None
                 self.graph = self.workflow.compile()
+        logger.info("[TIMING] TOTAL propagate: %.1fs", _time.time() - t0)
+        return result
 
     def _run_graph(self, company_name, trade_date):
         """Execute the graph and write the resulting state to disk and memory log."""
+        import time as _time
+
         # Initialize state — inject memory log context for PM.
+        _t = _time.time()
         past_context = self.memory_log.get_past_context(company_name)
         init_agent_state = self.propagator.create_initial_state(
             company_name, trade_date, past_context=past_context
         )
+        logger.info("[TIMING] state init + past_context: %.1fs", _time.time() - _t)
+
         args = self.propagator.get_graph_args()
 
         # Inject thread_id so same ticker+date resumes, different date starts fresh.
@@ -368,6 +379,7 @@ class TradingAgentsGraph:
             tid = thread_id(company_name, str(trade_date))
             args.setdefault("config", {}).setdefault("configurable", {})["thread_id"] = tid
 
+        _t = _time.time()
         if self.debug:
             trace = []
             printed_contents = set()  # deduplicate identical output across chunks
@@ -399,19 +411,24 @@ class TradingAgentsGraph:
             final_state = trace[-1] if trace else None
         else:
             final_state = self.graph.invoke(init_agent_state, **args)
+        logger.info("[TIMING] graph execution (invoke/stream): %.1fs", _time.time() - _t)
 
         # Store current state for reflection.
         self.curr_state = final_state
 
         # Log state to disk.
+        _t = _time.time()
         self._log_state(trade_date, final_state)
+        logger.info("[TIMING] _log_state (JSON write): %.1fs", _time.time() - _t)
 
         # Store decision for deferred reflection on the next same-ticker run.
+        _t = _time.time()
         self.memory_log.store_decision(
             ticker=company_name,
             trade_date=trade_date,
             final_trade_decision=final_state["final_trade_decision"],
         )
+        logger.info("[TIMING] memory_log.store_decision: %.1fs", _time.time() - _t)
 
         # Clear checkpoint on successful completion to avoid stale state.
         if self.config.get("checkpoint_enabled"):
@@ -419,7 +436,13 @@ class TradingAgentsGraph:
                 self.config["data_cache_dir"], company_name, str(trade_date)
             )
 
-        return final_state, self.process_signal(final_state["final_trade_decision"])
+        _t = _time.time()
+        signal = self.process_signal(final_state["final_trade_decision"])
+        logger.info("[TIMING] process_signal (rating parse): %.1fs", _time.time() - _t)
+
+        logger.info("[TIMING] TOTAL _run_graph: %.1fs", _time.time() - _t)
+
+        return final_state, signal
 
     def _log_state(self, trade_date, final_state):
         """Log the final state to a JSON file."""
