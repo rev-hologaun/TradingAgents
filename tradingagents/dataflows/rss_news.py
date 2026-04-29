@@ -5,9 +5,18 @@ and date range. Uses the `feedparser` library for RSS parsing.
 
 Default feeds:
 - Bloomberg Markets: https://feeds.bloomberg.com/markets/news.rss
-- Reuters: https://www.reuters.com/feed
+- Yahoo Finance: https://finance.yahoo.com/news/rssindex
 - CNBC Markets: https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114
-- MarketWatch: https://feeds.a.dj.com/rss/RSSMarketsMain.xml
+- MarketWatch (Dow Jones): https://feeds.a.dj.com/rss/RSSMarketsMain.xml
+
+Additional feeds for broader coverage:
+- WSJ Markets: https://feeds.a.dj.com/rss/RSSWorldNews.xml
+- Financial Times: https://www.ft.com/rss/home
+- Investing.com Stocks: https://www.investing.com/rss/stock_Stocks.rss
+- Investing.com Opinion: https://www.investing.com/rss/stock_Opinion.rss
+- Investing.com Stock Picks: https://www.investing.com/rss/stock_stock_picks.rss
+- MarketWatch Top Stories: https://feeds.content.dowjones.io/public/rss/mw_topstories
+- MarketWatch Bulletins: https://feeds.content.dowjones.io/public/rss/mw_bulletins
 
 Install feedparser: pip install feedparser
 """
@@ -46,6 +55,26 @@ ADDITIONAL_FEEDS = [
     {
         "name": "Financial Times",
         "url": "https://www.ft.com/rss/home",
+    },
+    {
+        "name": "Investing.com Stocks",
+        "url": "https://www.investing.com/rss/stock_Stocks.rss",
+    },
+    {
+        "name": "Investing.com Opinion",
+        "url": "https://www.investing.com/rss/stock_Opinion.rss",
+    },
+    {
+        "name": "Investing.com Stock Picks",
+        "url": "https://www.investing.com/rss/stock_stock_picks.rss",
+    },
+    {
+        "name": "MarketWatch Top Stories",
+        "url": "https://feeds.content.dowjones.io/public/rss/mw_topstories",
+    },
+    {
+        "name": "MarketWatch Bulletins",
+        "url": "https://feeds.content.dowjones.io/public/rss/mw_bulletins",
     },
 ]
 
@@ -132,7 +161,13 @@ def _fetch_feed(feed_url: str, timeout: int = 15, limit: int = 5) -> Optional[li
                         try:
                             pub_date = datetime.strptime(published[:10], "%Y-%m-%d")
                         except (ValueError, TypeError):
-                            pass
+                            try:
+                                pub_date = datetime.strptime(published, "%b %d, %Y %H:%M %Z")
+                            except (ValueError, TypeError):
+                                try:
+                                    pub_date = datetime.strptime(published[:10], "%b %d, %Y")
+                                except (ValueError, TypeError):
+                                    pass
 
                 entries.append({
                     "title": title,
